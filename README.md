@@ -1,177 +1,74 @@
+#include <Adafruit_NeoPixel.h> /*引用”Adafruit_NeoPixel.h”文件。引用的意思有点象“复制-粘贴”。
+include文件提供了一种很方便的方式共享了很多程序共有的信息。*/
+#include <U8glib.h>//关于oled屏幕引用函数的声明
+U8GLIB_SSD1306_128X64 u8g(U8G_I2C_OPT_NONE);      //说明oled型号
+//#define PIN_NUM 2 //允许接的led灯的个数
+//#define PIN 6   
+//Adafruit_NeoPixel strip = Adafruit_NeoPixel(PIN_NUM, PIN, NEO_GRB + NEO_KHZ800);  
+#define PIN 6                         /*定义了控制LED的引脚，6表示Microduino的D6引脚，可通过Hub转接出来，
+用户可以更改 */
+Adafruit_NeoPixel strip = Adafruit_NeoPixel(1, PIN, NEO_GRB + NEO_KHZ800);
+ //该函数第一个参数控制串联灯的个数，第二个是控制用哪个pin脚输出，第三个显示颜色和变化闪烁频率
+
+#define Light_PIN A0  //光照传感器接AO引脚
+#define buzzer 2//蜂鸣器接D2
+int SensorData;                                   //用于存储传感器数据                            
+#define humanHotSensor 8//PIR传感器D4
+bool humanHotState = true;
+unsigned long sensorlastTime = millis();
+#define INTERVAL_sensor 2000
 #define INTERVAL_SENSOR   17000             //定义传感器采样时间间隔  597000
 #define INTERVAL_NET      17000             //定义发送时间
-//传感器部分================================   
-#include <Wire.h>                                  //调用库  
-#include "./ESP8266.h"
-#include "I2Cdev.h"                                //调用库  
-//温湿度   
-#include <SHT2x.h>
-//光照
-#define  sensorPin_1  A0
-#include <U8glib.h>                 //OLED  库文件
-U8GLIB_SSD1306_128X64 u8g(U8G_I2C_OPT_NONE);       //设置OLED型号 
-//-------字体设置，大、中、小
+
 #define setFont_L u8g.setFont(u8g_font_7x13)
 #define setFont_M u8g.setFont(u8g_font_fixed_v0r)
 #define setFont_S u8g.setFont(u8g_font_fixed_v0r)
 #define setFont_SS u8g.setFont(u8g_font_fub25n)
-#define SSID           "555"                   // cannot be longer than 32 characters!
-#define PASSWORD       "dcb3357e666c"
+#define Light_value1 600
+//光强预设值，把光分为3个阶级，绿<400<蓝<800<红
 
-#define IDLE_TIMEOUT_MS  3000      // Amount of time to wait (in milliseconds) with no data 
-                                   // received before closing the connection.  If you know the server
-                                   // you're accessing is quick to respond, you can reduce this value.
+int sensorValue;
 
-//WEBSITE     
-#define HOST_NAME   "api.heclouds.com"
-#define DEVICEID   "20498923"
-#define PROJECTID "108472"
-#define HOST_PORT   (80)
-String apiKey="QJpz4T=S2mCpN9pCYVbDK=b=fzk=";
-char buf[10];
-
-#define INTERVAL_sensor 2000
-unsigned long sensorlastTime = millis();
-
-float tempOLED;
-
-#define INTERVAL_OLED 1000
-
-String mCottenData;
-String jsonToSend;
-
-//3,传感器值的设置 
-float sensor_tem;                    //传感器温度、湿度、光照   
-char  sensor_tem_c[7] ;    //换成char数组传输
-#include <SoftwareSerial.h>
-SoftwareSerial mySerial(2, 3); /* RX:D3, TX:D2 */
-ESP8266 wifi(mySerial);
-//ESP8266 wifi(Serial1);                                      //定义一个ESP8266（wifi）的对象
-unsigned long net_time1 = millis();                          //数据上传服务器时间
-unsigned long sensor_time = millis();                        //传感器采样时间计时器
-unsigned long lcd_time=millis();
-
-
-int SensorData;                                   //用于存储传感器数据
-String postString;                                //用于存储发送数据的字符串
-//String jsonToSend;                                //用于存储发送的json格式参数
-
-void setup(void)     //初始化函数  
-{       
-  //初始化串口波特率  
-    Wire.begin();
-    Serial.begin(115200);   
-    while(!Serial);
-    pinMode(sensorPin_1, INPUT);
-
-   //ESP8266初始化
-    Serial.print("setup begin\r\n");   
-
-  Serial.print("FW Version:");
-  Serial.println(wifi.getVersion().c_str());
-
-  if (wifi.setOprToStationSoftAP()) {
-    Serial.print("to station + softap ok\r\n");
-  } else {
-    Serial.print("to station + softap err\r\n");
-  }
-
-  if (wifi.joinAP(SSID, PASSWORD)) {      //加入无线网
-    Serial.print("Join AP success\r\n");  
-    Serial.print("IP: ");
-    Serial.println(wifi.getLocalIP().c_str());
-  } else {
-    Serial.print("Join AP failure\r\n");
-  }
-
-  if (wifi.disableMUX()) {
-    Serial.print("single ok\r\n");
-  } else {
-    Serial.print("single err\r\n");
-  }
-
-  Serial.print("setup end\r\n");
-    
-  
+void setup()                                //创建无返回值函数
+ {
+  Serial.begin(115200);               //初始化串口通信，并将波特率设置为115200
+  strip.begin();                             //准备对灯珠进行数据发送
+  strip.show();                              //初始化所有的灯珠为关的状态
+   pinMode(buzzer,OUTPUT); 
 }
-void loop(void)     //循环函数  
-{   
-  if (sensor_time > millis())  sensor_time = millis();  
-    
-  if(millis() - sensor_time > INTERVAL_SENSOR)              //传感器采样时间间隔  
-  {  
+void loop()                                  //无返回值loop函数
+ {
+  pinMode(humanHotSensor, INPUT);
+humanHotState = digitalRead(humanHotSensor);
+
+  sensorValue = analogRead(Light_PIN);             //光检测
+  Serial.println(sensorValue);                                //彩色led灯根据光强调节颜色和亮度
+  if (humanHotState)                         //若光强小于400
+//colorWipe(strip.Color(0, map(sensorValue, 10, 600, 0, 255), 0));
+/*“map(val,x,y,m,n)”函数为映射函数，可将某个区间的值（x-y）变幻成（m-n），val则是你需要用来映射的数据，
+这里是将10到400的光对应用0到255的绿光标示*/
+ 
+    { //colorWipe(strip.Color(0, 0, 0));
      u8g.firstPage();
-     do {
-         setFont_L;
-         getSensorData();                                        //读串口中的传感器数据
-         sensor_time = millis();
-         u8g.setPrintPos(10,40);
-         u8g.print("tem: 46");
-     }while( u8g.nextPage() );
+      do {
+        setFont_L;
+        getSensorData();                                        //读串口中的传感器数据
+        sensor_time = millis();
+        u8g.setPrintPos(10, 40);
+        u8g.print("tem: 40");
+        
+       tone(buzzer, 500, 10); 
+      colorWipe(strip.Color(0, 0, map(sensorValue, 10, 600, 0, 255)));
+       }while( u8g.nextPage() );
+     //将400到800的光分别用0到255的蓝光表示
+ }
+ else 
+ {//colorWipe(strip.Color(0, 0, map(sensorValue, 10, 600, 0, 255)));
+colorWipe(strip.Color(0, 0, 0));
+//将800到960的光用0到255的红光表示
+ }
+} 
+void colorWipe(uint32_t c) {
+  for (uint16_t i = 0; i < strip.numPixels(); i++)  //i从0自增到LED灯个数减1
+ {
     
-  }  
-
-    
-  if (net_time1 > millis())  net_time1 = millis();
-  
-  if (millis() - net_time1 > INTERVAL_NET)                  //发送数据时间间隔
-  {                
-    updateSensorData();                                     //将数据上传到服务器的函数
-    net_time1 = millis();
-  }
-  
-}
-
-void getSensorData(){  
-    sensor_tem = SHT2x.GetTemperature() ;   
-    
-    delay(1000);
-    dtostrf(sensor_tem, 2, 1, sensor_tem_c);
-   
-}
-void updateSensorData() {
-  if (wifi.createTCP(HOST_NAME, HOST_PORT)) { //建立TCP连接，如果失败，不能发送该数据
-    Serial.print("create tcp ok\r\n");
-
-jsonToSend="{\"Temperature\":";
-    dtostrf(sensor_tem,1,2,buf);
-    jsonToSend+="\""+String(buf)+"\"";
-    jsonToSend+="}";
-
-
-
-    postString="POST /devices/";
-    postString+=DEVICEID;
-    postString+="/datapoints?type=3 HTTP/1.1";
-    postString+="\r\n";
-    postString+="api-key:";
-    postString+=apiKey;
-    postString+="\r\n";
-    postString+="Host:api.heclouds.com\r\n";
-    postString+="Connection:close\r\n";
-    postString+="Content-Length:";
-    postString+=jsonToSend.length();
-    postString+="\r\n";
-    postString+="\r\n";
-    postString+=jsonToSend;
-    postString+="\r\n";
-    postString+="\r\n";
-    postString+="\r\n";
-
-  const char *postArray = postString.c_str();                 //将str转化为char数组
-  Serial.println(postArray);
-  wifi.send((const uint8_t*)postArray, strlen(postArray));    //send发送命令，参数必须是这两种格式，尤其是(const uint8_t*)
-  Serial.println("send success");   
-     if (wifi.releaseTCP()) {                                 //释放TCP连接
-        Serial.print("release tcp ok\r\n");
-        } 
-     else {
-        Serial.print("release tcp err\r\n");
-        }
-      postArray = NULL;                                       //清空数组，等待下次传输数据
-  
-  } else {
-    Serial.print("create tcp err\r\n");
-  }
-  
-}
